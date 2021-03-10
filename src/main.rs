@@ -81,7 +81,7 @@ fn is_tagged_as_djanco(attributes: &Vec<Attribute>) -> bool {
 }
 
 fn evaluate_function(function: &ItemFn, module: &ModulePath, found_queries: &mut Vec<QueryFunction>) -> Result<()> {
-    println!("Analyzing function: {:?}", function);
+    println!("Analyzing function: {}", function.sig.ident.to_string());
     if is_tagged_as_djanco(&function.attrs) {
         found_queries.push(QueryFunction {
             function: function.sig.ident.to_string(),
@@ -101,7 +101,7 @@ fn evaluate_item(item: &Item, module_path: &ModulePath, found_queries: &mut Vec<
 }
 
 fn evaluate_module(module: &ItemMod, module_path: &ModulePath, found_queries: &mut Vec<QueryFunction>) -> Result<()> {
-    println!("Analyzing module: {:?}", module);
+    println!("Analyzing module: {}", module.ident.to_string());
 
     let module_path = module_path.enter(module.ident.to_string());
 
