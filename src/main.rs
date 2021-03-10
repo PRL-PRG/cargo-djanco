@@ -81,6 +81,7 @@ fn is_tagged_as_djanco(attributes: &Vec<Attribute>) -> bool {
 }
 
 fn evaluate_function(function: &ItemFn, module: &ModulePath, found_queries: &mut Vec<QueryFunction>) -> Result<()> {
+    println!("Analyzing function: {:?}", function);
     if is_tagged_as_djanco(&function.attrs) {
         found_queries.push(QueryFunction {
             function: function.sig.ident.to_string(),
@@ -100,6 +101,8 @@ fn evaluate_item(item: &Item, module_path: &ModulePath, found_queries: &mut Vec<
 }
 
 fn evaluate_module(module: &ItemMod, module_path: &ModulePath, found_queries: &mut Vec<QueryFunction>) -> Result<()> {
+    println!("Analyzing module: {:?}", module);
+
     let module_path = module_path.enter(module.ident.to_string());
 
     if let Some((_, items)) = &module.content {
@@ -134,6 +137,8 @@ fn evaluate_module(module: &ItemMod, module_path: &ModulePath, found_queries: &m
 }
 
 fn evaluate_source_file(path: &Path, module_path: &ModulePath, found_queries: &mut Vec<QueryFunction>) -> Result<()> {
+    println!("Analyzing source file: {:?}", path);
+
     let mut source_file = File::open(path)?;
     let mut source_code = String::new();
     source_file.read_to_string(&mut source_code)?;
