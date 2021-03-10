@@ -237,9 +237,8 @@ fn main() {
         .expect("Error reading lib path from manifest")
         .unwrap_or("src/lib.rs".to_owned()));
 
-    //println!("crate name: {:?}", crate_name);
-    //println!("lib path: {:?}", lib_path);
-    //println!("{:?} -> {}", lib_path, lib_path.exists());
+    println!("crate name: {:?}", crate_name);
+    println!("lib path: {:?} -> {}", lib_path, lib_path.exists());
 
     let module_path = &ModulePath::root(crate_name);
     let mut found_queries = Vec::new();
