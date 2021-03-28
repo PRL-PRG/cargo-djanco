@@ -12,3 +12,5 @@ syn = { version = "1.0.57", features = ["full", "extra-traits", "visit"] }
 anyhow = "1.0.37"
 toml = "0.5.8"
 serde = "1.0.118"
+quote = "1.0.9"
+rustfmt = "0.10.0"
