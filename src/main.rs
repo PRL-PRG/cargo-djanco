@@ -673,10 +673,10 @@ fn generate_code (project_name: String, queries: Vec<QueryFunction>) -> String {
         .into_group_map().into_iter();
 
     for (configuration, queries) in query_groups {
-        code.push_str("   ");
+        code.push_str("    ");
         code.push_str(configuration.to_source().as_str());
         for query in queries {
-            code.push_str("   ");
+            code.push_str("    ");
             code.push_str(query.to_source().as_str());
         }
         code.push('\n');
@@ -726,7 +726,7 @@ fn main() {
         .expect("Error reading lib path from manifest")
         .unwrap_or("src/lib.rs".to_owned()));
 
-    println!("Creating a runner for crate: {:?}", crate_name);
+    println!("Creating a runner for crate `{}`", crate_name);
     // println!("lib path: {:?} -> {}", lib_path, lib_path.exists());
 
     let module_path = &ModulePath::root(crate_name.clone());
@@ -736,6 +736,12 @@ fn main() {
     let source_code = generate_code(crate_name, found_queries);
 
     //println!("{}", source_code);
+    println!("Generating a runner at `src/bin/djanco.rs`");
     create_dir_all("src/bin/").unwrap();
     std::fs::write("src/bin/djanco.rs", source_code).unwrap();
+
+    println!("Execute runner using the following cargo command:");
+    println!();
+    println!("    cargo --bin djanco --release -- --output-path PATH --dataset-path PATH");
+    println!();
 }
