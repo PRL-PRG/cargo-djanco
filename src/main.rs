@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::{File, create_dir_all};
 use std::io::Read;
 use std::path::PathBuf;
 use std::path::Path;
@@ -13,8 +13,7 @@ extern crate proc_macro;
 use syn::{self, Item, Attribute, ItemFn, ItemMod};
 use toml;
 
-use quote::{quote, ToTokens};
-use quote::format_ident;
+use quote::ToTokens;
 
 //use clap::Clap;
 use anyhow::*;
@@ -120,28 +119,6 @@ impl DjancoProperty for ItemFn {
         self.attrs.iter().flat_map(|attribute| attribute.get_djanco_attributes()).collect()
     }
 }
-
-// fn is_tagged_as_djanco(attributes: &Vec<Attribute>) -> bool {
-//     attributes.iter().any(|attribute| attribute.tagged_as_djanco())
-// }
-//
-// fn as_month<S>(str: S) -> Option<(String, u8)> where S: Into<String> {
-//     match str.into().to_lowercase().as_str() {
-//         "january"   | "jan" => Some(("January",   1)),
-//         "february"  | "feb" => Some(("February",  2)),
-//         "march"     | "mar" => Some(("March",     3)),
-//         "april"     | "apr" => Some(("April",     4)),
-//         "may"               => Some(("May",       5)),
-//         "june"      | "jun" => Some(("June",      6)),
-//         "july"      | "jul" => Some(("July",      7)),
-//         "august"    | "aug" => Some(("August",    8)),
-//         "september" | "sep" => Some(("September", 9)),
-//         "october"   | "oct" => Some(("October",  10)),
-//         "november"  | "nov" => Some(("November", 11)),
-//         "december"  | "dec" => Some(("December", 12)),
-//         _                   => None,
-//     }.map(|(s, n)| (s.to_string(), n))
-// }
 
 trait AsYear {
     fn as_year(&self) -> Option<u16>;
@@ -486,18 +463,8 @@ impl From<Attribute> for Configuration {
     }
 }
 
-// impl PartialEq for Configuration {
-//     fn eq(&self, other: &Self) -> bool {
-//         self.seed.eq(&other.seed)
-//             && self.month.eq(&other.month)
-//             && self.year.eq(&other.year)
-//             && self.seed.eq(&other.seed)
-//             && self.subsets.eq(&other.subsets)
-//     }
-// }
-
 fn evaluate_function(function: ItemFn, module: &ModulePath, found_queries: &mut Vec<QueryFunction>) -> Result<()> {
-    println!("Analyzing function: {}", function.sig.ident.to_string());
+    //println!("Analyzing function: {}", function.sig.ident.to_string());
     let query_configurations = function.get_djanco_attributes().into_iter()
         .map(|attribute| {
             Configuration::from(attribute)
@@ -519,8 +486,7 @@ fn evaluate_item(item: &Item, module_path: &ModulePath, found_queries: &mut Vec<
 }
 
 fn evaluate_module(module: &ItemMod, module_path: &ModulePath, found_queries: &mut Vec<QueryFunction>) -> Result<()> {
-    println!("Analyzing module: {}", module.ident.to_string());
-
+    //println!("Analyzing module: {}", module.ident.to_string());
     let module_path = module_path.enter(module.ident.to_string());
 
     if let Some((_, items)) = &module.content {
@@ -650,73 +616,70 @@ impl Manifest for Value {
     }
 }
 
-fn _generate_code (project_name: String, _queries: Vec<QueryFunction>) -> String {
-    let project = format_ident!("{}", project_name);
-    let tokens = quote! {
-        use clap::Clap;
+const USES: [&'static str; 4] = ["djanco::*", "djanco::log::*", "djanco::utils::*", "clap::Clap"];
 
-        use djanco::*;
-        use djanco::log::*;
-        use djanco::utils::*;
+const MAIN_HEADER: &'static str = r#"
+    let options = CommandLineOptions::parse();
+    let log = Log::new(options.verbosity);
+    let dataset = options.dataset_path_as_str();
+    let cache = options.cache_path_as_str();
 
-        use #project;
-
-        // These are automatically generated for the crate.
-        const PROJECT_NAME: &'static str = #project_name;
-        const SAVEPOINT: i64 = 1606780800; // 1st December 2020 // FIXME
-        const SUBSTORES: [Store; 1] = [Store::Large(store::Language::JavaScript)]; // FIXME
-
-        pub fn main() {
-            let options = CommandLineOptions::parse();
-
-            let repository = if let Some(repository) = options.repository.as_ref() {
-                Some(create_project_archive(PROJECT_NAME, repository.as_str()))
-            } else {
-                None
-            };
-
-            let log = Log::new(options.verbosity);
-            let database = Djanco::from_spec(
-                options.dataset_path_as_str(),
-                options.cache_path_as_str(),
-                SAVEPOINT,
-                SUBSTORES.iter().map(|store| store.clone()).collect(),
-                log.clone()
-            ).expect("Error initializing Djanco!");
-
-            macro_rules! execute_query {
-                ($method:path) => {
-                    timed_query!($method[&database, &log, &options.output_path]);
-                }
-            }
-
-            // These are automatically generated for the crate.
-            init_timing_log!();
-            execute_query!(djanco_template::hello_world);
-            execute_query!(djanco_template::inner::hello_world);
-            execute_query!(djanco_template::mymod::queryrrr);
-            execute_query!(djanco_template::butts::xxxx1);
-            execute_query!(djanco_template::butts::xxxx2);
-            execute_query!(djanco_template::butts::butter::not_omitted);
-            execute_query!(djanco_template::butts::butter::xxxx);
-
-            if options.repository.is_some() && !options.do_not_archive_results {
-                add_results(PROJECT_NAME, &repository.unwrap(), &options.output_path, options.size_limit);
-            }
-        }
+    let repository = if let Some(repository) = options.repository.as_ref() {
+        Some(create_project_archive(PROJECT_NAME, repository.as_str()))
+    } else {
+        None
     };
 
-    tokens.to_string()
+    macro_rules! execute_query {
+        ($database:expr, $method:path) => {
+            timed_query!($method[&$database, &log, &options.output_path]);
+        }
+    }
+"#;
+
+const MAIN_FOOTER: &'static str = r#"
+    if options.repository.is_some() && !options.do_not_archive_results {
+        add_results(PROJECT_NAME, &repository.unwrap(), &options.output_path, options.size_limit);
+    }
+"#;
+
+fn generate_code (project_name: String, queries: Vec<QueryFunction>) -> String {
+    let mut code = String::new();
+
+    for package in USES.iter() {
+        code.push_str(&format!("use {};\n", package));
+    }
+    code.push('\n');
+
+    code.push_str(&format!("use {};\n", project_name));
+    code.push('\n');
+
+    code.push_str(&format!("const PROJECT_NAME: &'static str = \"{}\";\n", project_name));
+    code.push('\n');
+
+    code.push_str("pub fn main() {\n");
+    code.push_str(MAIN_HEADER);
+    code.push('\n');
+
+    let query_groups = queries.into_iter()
+        .map(|query| (query.configuration.clone(), query))
+        .into_group_map().into_iter();
+
+    for (configuration, queries) in query_groups {
+        code.push_str(configuration.to_source_with_indent().as_str());
+        code.push('\n');
+
+        for query in queries {
+            code.push_str(query.to_source_with_indent().as_str());
+        }
+        code.push('\n');
+    }
+
+    code.push_str(MAIN_FOOTER);
+    code.push_str("}\n");
+    code
 }
 
-// fn write_into<P, S>(path: P, code: S) -> anyhow::Result<()> where P: AsRef<Path>, S: ToString {
-//     std::fs::write(&path, code.to_string())?;
-//     Command::new("rustfmt")
-//         .arg(path.as_ref())
-//         .spawn()?
-//         .wait()?;
-//     Ok(())
-// }
 
 pub trait ToSource {
     const INDENT: &'static str = "    ";
@@ -728,20 +691,28 @@ pub trait ToSource {
 
 impl ToSource for Configuration {
     fn to_source(&self) -> String {
-        let timestamp = chrono::Utc.ymd(self.year.as_i32(), self.month.as_u32(), 1).and_hms(0, 0, 0).timestamp();
-        let stores = self.subsets.iter().map(|s| format!("\"{}\"", s)).join(", ");
+        let timestamp = chrono::Utc.ymd(self.year.as_i32(), self.month.as_u32(), 1)
+                .and_hms(0, 0, 0)
+                .timestamp();
+
+        let stores = if self.subsets.is_empty() { "All".to_owned() } else {
+            self.subsets.iter()/*.map(|s| format!("\"{}\"", s))*/.join(", ")
+        };
 
         format!("let database = \n\
-                {} Djanco::from_spec(dataset, cache, {} /*{} {}*/, stores!({}), log.clone()) \n\
-                {}{} .expect(\"Error initializing Djanco!\");",
-                Self::INDENT, timestamp, self.month, self.year, stores,
-                Self::INDENT, Self::INDENT)
+                {}Djanco::from_spec(dataset, cache, {} /*{} {}*/, \n\
+                {}                  stores!({}), log.clone()) \n\
+                {}{}.expect(\"Error initializing Djanco!\");\n",
+                Self::INDENT, timestamp, self.month, self.year,
+                Self::INDENT, stores,
+                Self::INDENT,
+                Self::INDENT)
     }
 }
 
 impl ToSource for QueryFunction {
     fn to_source(&self) -> String {
-        format!("execute_query!(database, {});", self)
+        format!("execute_query!(database, {});\n", self)
     }
 }
 
@@ -762,20 +733,9 @@ fn main() {
     let mut found_queries = Vec::new();
     evaluate_source_file(&lib_path, module_path, &mut found_queries).unwrap();
 
-    found_queries.into_iter()
-        .map(|query| (query.configuration.clone(), query))
-        .into_group_map().into_iter()
-        .for_each(|(configuration, queries)| {
-            println!("{}", configuration.to_source_with_indent());
-            for query in queries {
-                println!("{}", query.to_source_with_indent())
-            }
-            println!();
-        })
+    let source_code = generate_code(crate_name, found_queries);
 
-
-    // let tokens = generate_code(crate_name, found_queries);
-
-    //println!("{}", tokens.into_token_stream().to_string());
-    // write_into("test.rs", tokens).unwrap();
+    //println!("{}", source_code);
+    create_dir_all("src/bin/").unwrap();
+    std::fs::write("src/bin/djanco.rs", source_code).unwrap();
 }
