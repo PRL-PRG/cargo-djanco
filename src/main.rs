@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 use std::collections::VecDeque;
 use std::collections::HashSet;
 use std::str::FromStr;
-use std::process::Command;
 
 extern crate proc_macro;
 
@@ -21,8 +20,10 @@ use quote::format_ident;
 use anyhow::*;
 use toml::Value;
 use regex::Regex;
-use chrono::Datelike;
+use chrono::{Datelike, TimeZone};
 use proc_macro2::{TokenTree, TokenStream};
+use itertools::Itertools;
+use std::hash::{Hash, Hasher};
 
 // #[derive(Clap)]
 // #[clap(version = "1.0", author = "Konrad Siek <konrad.siek@gmail.com>")]
@@ -157,10 +158,29 @@ impl<S> AsYear for S where S: ToString {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Hash, PartialOrd, PartialEq, Ord, Eq)]
 enum Month {
     January, February, March, April, May, June, July,
     August, September, October, November, December,
+}
+
+impl Month {
+    pub fn as_u32(&self) -> u32 {
+        match self {
+            Month::January   => 1,
+            Month::February  => 2,
+            Month::March     => 3,
+            Month::April     => 4,
+            Month::May       => 5,
+            Month::June      => 6,
+            Month::July      => 7,
+            Month::August    => 8,
+            Month::September => 9,
+            Month::October   => 10,
+            Month::November  => 11,
+            Month::December  => 12,
+        }
+    }
 }
 
 impl<T> From<&T> for Month where T: Datelike {
@@ -349,8 +369,14 @@ impl IntoPropertyVector for TokenStream {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Hash, PartialOrd, PartialEq, Ord, Eq)]
 struct Year(u16);
+
+impl Year {
+    pub fn as_i32(&self) -> i32 {
+        self.0 as i32
+    }
+}
 
 impl From<u16> for Year {
     fn from(n: u16) -> Self {
@@ -373,12 +399,21 @@ impl Display for Year {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Configuration {
     month: Month,
     year: Year,
     subsets: HashSet<String>,
     seed: u128,
+}
+
+impl Hash for Configuration {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.month.hash(state);
+        self.year.hash(state);
+        self.seed.hash(state);
+        self.subsets.iter().collect::<Vec<&String>>().into_iter().for_each(|e| e.hash(state))
+    }
 }
 
 impl From<Vec<Property>> for Configuration {
@@ -451,15 +486,15 @@ impl From<Attribute> for Configuration {
     }
 }
 
-impl PartialEq for Configuration {
-    fn eq(&self, other: &Self) -> bool {
-        self.seed.eq(&other.seed)
-            && self.month.eq(&other.month)
-            && self.year.eq(&other.year)
-            && self.seed.eq(&other.seed)
-            && self.subsets.eq(&other.subsets)
-    }
-}
+// impl PartialEq for Configuration {
+//     fn eq(&self, other: &Self) -> bool {
+//         self.seed.eq(&other.seed)
+//             && self.month.eq(&other.month)
+//             && self.year.eq(&other.year)
+//             && self.seed.eq(&other.seed)
+//             && self.subsets.eq(&other.subsets)
+//     }
+// }
 
 fn evaluate_function(function: ItemFn, module: &ModulePath, found_queries: &mut Vec<QueryFunction>) -> Result<()> {
     println!("Analyzing function: {}", function.sig.ident.to_string());
@@ -615,7 +650,7 @@ impl Manifest for Value {
     }
 }
 
-fn generate_code (project_name: String, _queries: Vec<QueryFunction>) -> String {
+fn _generate_code (project_name: String, _queries: Vec<QueryFunction>) -> String {
     let project = format_ident!("{}", project_name);
     let tokens = quote! {
         use clap::Clap;
@@ -674,13 +709,37 @@ fn generate_code (project_name: String, _queries: Vec<QueryFunction>) -> String 
     tokens.to_string()
 }
 
-fn write_into<P, S>(path: P, code: S) -> anyhow::Result<()> where P: AsRef<Path>, S: ToString {
-    std::fs::write(&path, code.to_string())?;
-    Command::new("rustfmt")
-        .arg(path.as_ref())
-        .spawn()?
-        .wait()?;
-    Ok(())
+// fn write_into<P, S>(path: P, code: S) -> anyhow::Result<()> where P: AsRef<Path>, S: ToString {
+//     std::fs::write(&path, code.to_string())?;
+//     Command::new("rustfmt")
+//         .arg(path.as_ref())
+//         .spawn()?
+//         .wait()?;
+//     Ok(())
+// }
+
+pub trait ToSource {
+    const INDENT: &'static str = "    ";
+    fn to_source(&self) -> String; // FIXME write out to object
+}
+
+impl ToSource for Configuration {
+    fn to_source(&self) -> String {
+        let timestamp = chrono::Utc.ymd(self.year.as_i32(), self.month.as_u32(), 1).and_hms(0, 0, 0).timestamp();
+        let stores = self.subsets.iter().map(|s| format!("\"{}\"", s)).join(", ");
+
+        format!("let database = \n\
+                {} Djanco::from_spec(dataset, cache, {} /*{} {}*/, stores!({}), log.clone()) \n\
+                {}{} .expect(\"Error initializing Djanco!\");",
+                Self::INDENT, timestamp, self.month, self.year, stores,
+                Self::INDENT, Self::INDENT)
+    }
+}
+
+impl ToSource for QueryFunction {
+    fn to_source(&self) -> String {
+        format!("execute_query!({});", self)
+    }
 }
 
 fn main() {
@@ -700,8 +759,20 @@ fn main() {
     let mut found_queries = Vec::new();
     evaluate_source_file(&lib_path, module_path, &mut found_queries).unwrap();
 
-    let tokens = generate_code(crate_name, found_queries);
+    found_queries.into_iter()
+        .map(|query| (query.configuration.clone(), query))
+        .into_group_map().into_iter()
+        .for_each(|(configuration, queries)| {
+            println!("{}", configuration.to_source());
+            for query in queries {
+                println!("{}", query.to_source())
+            }
+            println!();
+        })
+
+
+    // let tokens = generate_code(crate_name, found_queries);
 
     //println!("{}", tokens.into_token_stream().to_string());
-    write_into("test.rs", tokens).unwrap();
+    // write_into("test.rs", tokens).unwrap();
 }
