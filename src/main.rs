@@ -721,6 +721,9 @@ fn _generate_code (project_name: String, _queries: Vec<QueryFunction>) -> String
 pub trait ToSource {
     const INDENT: &'static str = "    ";
     fn to_source(&self) -> String; // FIXME write out to object
+    fn to_source_with_indent(&self) -> String {
+        self.to_source().split("\n").map(|s| format!("{}{}", Self::INDENT, s)).join("\n")
+    }
 }
 
 impl ToSource for Configuration {
@@ -738,7 +741,7 @@ impl ToSource for Configuration {
 
 impl ToSource for QueryFunction {
     fn to_source(&self) -> String {
-        format!("execute_query!({});", self)
+        format!("execute_query!(database, {});", self)
     }
 }
 
@@ -763,9 +766,9 @@ fn main() {
         .map(|query| (query.configuration.clone(), query))
         .into_group_map().into_iter()
         .for_each(|(configuration, queries)| {
-            println!("{}", configuration.to_source());
+            println!("{}", configuration.to_source_with_indent());
             for query in queries {
-                println!("{}", query.to_source())
+                println!("{}", query.to_source_with_indent())
             }
             println!();
         })
