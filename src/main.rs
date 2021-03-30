@@ -705,7 +705,7 @@ impl ToSource for Configuration {
         let stores =
             if self.subsets.is_empty() { "All".to_owned() } else { self.subsets.iter().join(", ") };
 
-        format!("let database = prepare_database!({} /*== {} {}*/, stores!({}));\n",
+        format!("let database = prepare_database!({} /* = {} {}*/, stores!({}));\n",
                 timestamp, self.month, self.year, stores)
     }
 }
