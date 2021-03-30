@@ -521,7 +521,7 @@ fn evaluate_module(module: &ItemMod, module_path: &ModulePath, found_queries: &m
 }
 
 fn evaluate_source_file(path: &Path, module_path: &ModulePath, found_queries: &mut Vec<QueryFunction>) -> Result<()> {
-    println!("Analyzing source file: {:?}", path);
+    // println!("Analyzing source file: {:?}", path);
 
     let mut source_file = File::open(path)?;
     let mut source_code = String::new();
@@ -635,6 +635,13 @@ const MAIN_HEADER: &'static str = r#"
             timed_query!($method[&$database, &log, &options.output_path]);
         }
     }
+
+    macro_rules! prepare_database {
+        ($savepoint:expr, $stores:expr) => {
+            Djanco::from_spec(dataset, cache, $savepoint, $stores, log.clone())
+                .expect("Error initializing Djanco!");
+        }
+    }
 "#;
 
 const MAIN_FOOTER: &'static str = r#"
@@ -666,11 +673,11 @@ fn generate_code (project_name: String, queries: Vec<QueryFunction>) -> String {
         .into_group_map().into_iter();
 
     for (configuration, queries) in query_groups {
-        code.push_str(configuration.to_source_with_indent().as_str());
-        code.push('\n');
-
+        code.push_str("   ");
+        code.push_str(configuration.to_source().as_str());
         for query in queries {
-            code.push_str(query.to_source_with_indent().as_str());
+            code.push_str("   ");
+            code.push_str(query.to_source().as_str());
         }
         code.push('\n');
     }
@@ -684,9 +691,9 @@ fn generate_code (project_name: String, queries: Vec<QueryFunction>) -> String {
 pub trait ToSource {
     const INDENT: &'static str = "    ";
     fn to_source(&self) -> String; // FIXME write out to object
-    fn to_source_with_indent(&self) -> String {
-        self.to_source().split("\n").map(|s| format!("{}{}", Self::INDENT, s)).join("\n")
-    }
+    // fn to_source_with_indent(&self) -> String {
+    //     self.to_source().split("\n").map(|s| format!("{}{}", Self::INDENT, s)).join("\n")
+    // }
 }
 
 impl ToSource for Configuration {
@@ -695,18 +702,11 @@ impl ToSource for Configuration {
                 .and_hms(0, 0, 0)
                 .timestamp();
 
-        let stores = if self.subsets.is_empty() { "All".to_owned() } else {
-            self.subsets.iter()/*.map(|s| format!("\"{}\"", s))*/.join(", ")
-        };
+        let stores =
+            if self.subsets.is_empty() { "All".to_owned() } else { self.subsets.iter().join(", ") };
 
-        format!("let database = \n\
-                {}Djanco::from_spec(dataset, cache, {} /*{} {}*/, \n\
-                {}                  stores!({}), log.clone()) \n\
-                {}{}.expect(\"Error initializing Djanco!\");\n",
-                Self::INDENT, timestamp, self.month, self.year,
-                Self::INDENT, stores,
-                Self::INDENT,
-                Self::INDENT)
+        format!("let database = prepare_database!({} /*== {} {}*/, stores!({}));\n",
+                timestamp, self.month, self.year, stores)
     }
 }
 
