@@ -55,7 +55,7 @@ struct QueryFunction {
 
 impl QueryFunction {
     pub fn from<S>(function_name: S, module: ModulePath, configuration: Configuration) -> Self where S: ToString {
-        println!("Found configuration {}::{} -> {:?}", module, function_name.to_string(), configuration);
+        // println!("Found configuration {}::{} -> {:?}", module, function_name.to_string(), configuration);
         QueryFunction { function: function_name.to_string(), module, configuration }
     }
 }
@@ -726,8 +726,8 @@ fn main() {
         .expect("Error reading lib path from manifest")
         .unwrap_or("src/lib.rs".to_owned()));
 
-    println!("crate name: {:?}", crate_name);
-    println!("lib path: {:?} -> {}", lib_path, lib_path.exists());
+    println!("Creating a runner for crate: {:?}", crate_name);
+    // println!("lib path: {:?} -> {}", lib_path, lib_path.exists());
 
     let module_path = &ModulePath::root(crate_name.clone());
     let mut found_queries = Vec::new();
