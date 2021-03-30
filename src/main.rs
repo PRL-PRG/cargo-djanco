@@ -1,24 +1,28 @@
 use std::fs::File;
-use std::io::{Read, stdout};
-use std::path::{PathBuf, Path};
-use std::fmt::{Display, Formatter};
-use std::collections::{VecDeque, HashSet};
+use std::io::Read;
+use std::path::PathBuf;
+use std::path::Path;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::collections::VecDeque;
+use std::collections::HashSet;
+use std::str::FromStr;
+use std::process::Command;
+
+extern crate proc_macro;
 
 use syn::{self, Item, Attribute, ItemFn, ItemMod};
 use toml;
 
-use quote::{quote, ToTokens, quote_spanned};
+use quote::{quote, ToTokens};
 use quote::format_ident;
 
 //use clap::Clap;
 use anyhow::*;
 use toml::Value;
-use std::process::Command;
-use quote::__private::{TokenStream, TokenTree, Literal};
-use unescape::unescape;
 use regex::Regex;
 use chrono::Datelike;
-use std::str::FromStr;
+use proc_macro2::{TokenTree, TokenStream};
 
 // #[derive(Clap)]
 // #[clap(version = "1.0", author = "Konrad Siek <konrad.siek@gmail.com>")]
@@ -116,27 +120,27 @@ impl DjancoProperty for ItemFn {
     }
 }
 
-fn is_tagged_as_djanco(attributes: &Vec<Attribute>) -> bool {
-    attributes.iter().any(|attribute| attribute.tagged_as_djanco())
-}
-
-fn as_month<S>(str: S) -> Option<(String, u8)> where S: Into<String> {
-    match str.into().to_lowercase().as_str() {
-        "january"   | "jan" => Some(("January",   1)),
-        "february"  | "feb" => Some(("February",  2)),
-        "march"     | "mar" => Some(("March",     3)),
-        "april"     | "apr" => Some(("April",     4)),
-        "may"               => Some(("May",       5)),
-        "june"      | "jun" => Some(("June",      6)),
-        "july"      | "jul" => Some(("July",      7)),
-        "august"    | "aug" => Some(("August",    8)),
-        "september" | "sep" => Some(("September", 9)),
-        "october"   | "oct" => Some(("October",  10)),
-        "november"  | "nov" => Some(("November", 11)),
-        "december"  | "dec" => Some(("December", 12)),
-        _                   => None,
-    }.map(|(s, n)| (s.to_string(), n))
-}
+// fn is_tagged_as_djanco(attributes: &Vec<Attribute>) -> bool {
+//     attributes.iter().any(|attribute| attribute.tagged_as_djanco())
+// }
+//
+// fn as_month<S>(str: S) -> Option<(String, u8)> where S: Into<String> {
+//     match str.into().to_lowercase().as_str() {
+//         "january"   | "jan" => Some(("January",   1)),
+//         "february"  | "feb" => Some(("February",  2)),
+//         "march"     | "mar" => Some(("March",     3)),
+//         "april"     | "apr" => Some(("April",     4)),
+//         "may"               => Some(("May",       5)),
+//         "june"      | "jun" => Some(("June",      6)),
+//         "july"      | "jul" => Some(("July",      7)),
+//         "august"    | "aug" => Some(("August",    8)),
+//         "september" | "sep" => Some(("September", 9)),
+//         "october"   | "oct" => Some(("October",  10)),
+//         "november"  | "nov" => Some(("November", 11)),
+//         "december"  | "dec" => Some(("December", 12)),
+//         _                   => None,
+//     }.map(|(s, n)| (s.to_string(), n))
+// }
 
 trait AsYear {
     fn as_year(&self) -> Option<u16>;
@@ -430,7 +434,7 @@ impl From<Vec<Property>> for Configuration {
 impl From<Attribute> for Configuration {
     fn from(attribute: Attribute) -> Self {
         let identifier: String = attribute.path.get_ident().unwrap().to_string();
-        let tokens: Vec<TokenTree> = attribute.tokens.into_iter().collect();
+        let tokens: Vec<TokenTree> = attribute.tokens.into_token_stream().into_iter().collect();
 
         if tokens.len() != 1 {
             panic!("Attribute expected to have one argument group, but found {}", tokens.len());
@@ -611,7 +615,7 @@ impl Manifest for Value {
     }
 }
 
-fn generate_code (project_name: String, queries: Vec<QueryFunction>) -> String {
+fn generate_code (project_name: String, _queries: Vec<QueryFunction>) -> String {
     let project = format_ident!("{}", project_name);
     let tokens = quote! {
         use clap::Clap;
@@ -699,5 +703,5 @@ fn main() {
     let tokens = generate_code(crate_name, found_queries);
 
     //println!("{}", tokens.into_token_stream().to_string());
-    write_into("test.rs", tokens);
+    write_into("test.rs", tokens).unwrap();
 }
