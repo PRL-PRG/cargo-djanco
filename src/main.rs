@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{Read, stdout};
 use std::path::{PathBuf, Path};
 use std::fmt::{Display, Formatter};
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashSet};
 
 use syn::{self, Item, Attribute, ItemFn, ItemMod};
 use toml;
@@ -15,6 +15,10 @@ use anyhow::*;
 use toml::Value;
 use std::process::Command;
 use quote::__private::{TokenStream, TokenTree, Literal};
+use unescape::unescape;
+use regex::Regex;
+use chrono::Datelike;
+use std::str::FromStr;
 
 // #[derive(Clap)]
 // #[clap(version = "1.0", author = "Konrad Siek <konrad.siek@gmail.com>")]
@@ -42,6 +46,14 @@ use quote::__private::{TokenStream, TokenTree, Literal};
 struct QueryFunction {
     module: ModulePath,
     function: String,
+    configuration: Configuration,
+}
+
+impl QueryFunction {
+    pub fn from<S>(function_name: S, module: ModulePath, configuration: Configuration) -> Self where S: ToString {
+        println!("Found configuration {}::{} -> {:?}", module, function_name.to_string(), configuration);
+        QueryFunction { function: function_name.to_string(), module, configuration }
+    }
 }
 
 impl Display for QueryFunction {
@@ -140,20 +152,31 @@ impl<S> AsYear for S where S: ToString {
            })
     }
 }
-//
-// fn as_year(&self) -> Option<u16> {
-//     self.into().parse::<u16>().map_or(None, |number|
-//         if number >= 2005 && number <= 2050 {
-//             Some(number)
-//         } else {
-//             None
-//         })
-// }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd)]
 enum Month {
     January, February, March, April, May, June, July,
     August, September, October, November, December,
+}
+
+impl<T> From<&T> for Month where T: Datelike {
+    fn from(datelike: &T) -> Self {
+        match datelike.month() {
+            1 => Month::January,
+            2 => Month::February,
+            3 => Month::March,
+            4 => Month::April,
+            5 => Month::May,
+            6 => Month::June,
+            7 => Month::July,
+            8 => Month::August,
+            9 => Month::September,
+            10 => Month::October,
+            11 => Month::November,
+            12 => Month::December,
+            i => panic!("Cannot convert number {} to Month", i),
+        }
+    }
 }
 
 trait AsMonth {
@@ -180,40 +203,44 @@ impl<S> AsMonth for S where S: ToString {
     }
 }
 
+impl Display for Month {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Month::January   => write!(f, "January"),
+            Month::February  => write!(f, "February"),
+            Month::March     => write!(f, "March"),
+            Month::April     => write!(f, "April"),
+            Month::May       => write!(f, "May"),
+            Month::June      => write!(f, "June"),
+            Month::July      => write!(f, "July"),
+            Month::August    => write!(f, "August"),
+            Month::September => write!(f, "September"),
+            Month::October   => write!(f, "October"),
+            Month::November  => write!(f, "November"),
+            Month::December  => write!(f, "December"),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 enum Property {
     Month(Month),
-    Year(u16),
-    Entity { name: String, arguments: Vec<Property> },
-    Literal(String),
+    Year(Year),
+    Seed(u128),
+    Subsets(Vec<String>),
 }
 
 impl Property {
-    fn year(year: u16) -> Self {
-        Property::Year(year)
-    }
-
-    fn month(month: Month) -> Self {
-        Property::Month(month)
-    }
-
-    fn identifier(name: String) -> Self {
-        Property::Entity { name, arguments: vec![] }
-    }
-
-    fn entity(name: String, arguments: Vec<Property>) -> Self {
-        Property::Entity { name, arguments }
-    }
-
-    fn literal(value: String) -> Self {
-        Property::Literal(value)
-    }
+    fn year(year: u16)               -> Self { Property::Year(Year::from(year)) }
+    fn month(month: Month)           -> Self { Property::Month(month)           }
+    fn subsets(subsets: Vec<String>) -> Self { Property::Subsets(subsets)       }
+    fn seed(seed: u128)              -> Self { Property::Seed(seed)             }
 
     fn interpret_literal<S>(literal: S) -> Self where S: ToString {
         if let Some(year) = literal.as_year() {
             Property::year(year)
         } else {
-            Property::literal(literal.to_string())
+            panic!("Unknown property: {}", literal.to_string())
         }
     }
 
@@ -221,7 +248,7 @@ impl Property {
         if let Some(month) = identifier.as_month() {
             Property::month(month)
         } else {
-            Property::literal(identifier.to_string())
+            panic!("Unknown property: {}", identifier.to_string())
         }
     }
 }
@@ -234,6 +261,7 @@ impl IntoPropertyVector for TokenStream {
     fn into_properties(self) -> Vec<Property> {
         let mut properties = vec![];
         let mut preceding_identifier: Option<String> = None;
+        let string_regex = Regex::new(r#"^"(?P<l>.*)"$"#).unwrap();
 
         for token in self {
             match token {
@@ -242,8 +270,48 @@ impl IntoPropertyVector for TokenStream {
                     if name.as_month().is_some() {
                         panic!("Month {} cannot have arguments {:?}", name, group.to_string());
                     }
-                    let arguments = group.stream().into_properties();
-                    let property = Property::entity(name, arguments);
+                    let property = match name.to_lowercase().as_str() {
+                        "subset" | "subsets" => {
+                            let subsets = group.stream().into_iter().flat_map(|member| match member {
+                                TokenTree::Group(_) => {
+                                    panic!("Property {} can only contain subset definitions.", name)
+                                },
+                                TokenTree::Ident(identifier) => {
+                                    Some(identifier.to_string())
+                                },
+                                TokenTree::Punct(_) => {
+                                    None
+                                },
+                                TokenTree::Literal(literal) => {
+                                    let literal = literal.to_string();
+                                    if !string_regex.is_match(&literal) {
+                                        Some(literal)
+                                    } else {
+                                        let unquoted = &string_regex.replace_all(&literal, "$l");
+                                        let unescaped = unescape::unescape(unquoted).unwrap();
+                                        Some(unescaped)
+                                    }
+                                },
+                            }).collect();
+                            Property::subsets(subsets)
+                        },
+                        "seed" => {
+                            let seed: Vec<u128> = group.stream().into_iter()
+                                .map(|tokens| tokens.to_string())
+                                .map(|string| u128::from_str(string.as_str()).unwrap())
+                                .collect();
+                            if seed.len() < 1 {
+                                panic!("Expected seed to contain one numeric argument, but found none");
+                            }
+                            if seed.len() > 1 {
+                                panic!("Expected seed to contain one numeric argument, but found {}", seed.len());
+                            }
+                            Property::seed(*seed.first().unwrap())
+                        },
+                        _ => {
+                            panic!("Djanco does not allow property {}.", name);
+                        }
+                    };
                     properties.push(property);
                     preceding_identifier = None;
                 }
@@ -277,7 +345,89 @@ impl IntoPropertyVector for TokenStream {
     }
 }
 
-impl From<Attribute> for Property {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd)]
+struct Year(u16);
+
+impl From<u16> for Year {
+    fn from(n: u16) -> Self {
+        if n < 2005 || n > 2035 {
+            panic!("{} is not a valid year (should be between {} and {})", n, 2005, 2035);
+        }
+        Year(n)
+    }
+}
+
+impl<T> From<&T> for Year where T: Datelike {
+    fn from(datelike: &T) -> Self {
+        Year(datelike.year() as u16)
+    }
+}
+
+impl Display for Year {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Configuration {
+    month: Month,
+    year: Year,
+    subsets: HashSet<String>,
+    seed: u128,
+}
+
+impl From<Vec<Property>> for Configuration {
+    fn from(parameters: Vec<Property>) -> Configuration {
+        let mut month: Option<Month> = None;
+        let mut year: Option<Year> = None;
+        let mut subsets: HashSet<String> = HashSet::new();
+        let mut seed: Option<u128> = None;
+
+        for parameter in parameters {
+            match parameter {
+                Property::Month(value) if month.is_some() => {
+                    panic!("Attempt to define multiple months in one `djanco` tag ({} and {}...). \
+                            If you want to run one query at multiple savepoints, define another \
+                            `djanco` tag for the same function.",
+                           month.unwrap(), value);
+                }
+                Property::Year(value) if year.is_some() => {
+                    panic!("Attempt to define multiple years in one `djanco` tag ({} and {}...). \
+                            If you want to run one query at multiple savepoints, define another \
+                            `djanco` tag for the same function.",
+                           year.unwrap(), value);
+                }
+                Property::Seed(value) if seed.is_some() => {
+                    panic!("Attempt to define multiple seeds in one `djanco` tag ({} and {}...). \
+                            If you want to run one query with multiple random seeds, define \
+                            another `djanco` tag for the same function.",
+                           seed.unwrap(), value);
+                }
+                Property::Month(value) => { month = Some(value); }
+                Property::Year(value)  => { year  = Some(value); }
+                Property::Seed(value)  => { seed  = Some(value); }
+                Property::Subsets(vector) => {
+                    subsets.extend(vector.into_iter())
+                }
+            }
+        }
+
+        let today = chrono::Local::today();
+        let month: Month = match (&year, month) {
+            (_, Some(month)) => month,
+            (Some(_year), None) => Month::January,
+            (None, None) => Month::from(&today),
+        };
+        let year: Year = if let Some(year) = year { year } else { Year::from(&today) };
+        //let subsets: Vec<String> = ...
+        let seed: u128 = if let Some(seed) = seed { seed } else { 0 };
+
+        Configuration { month, year, subsets, seed }
+    }
+}
+
+impl From<Attribute> for Configuration {
     fn from(attribute: Attribute) -> Self {
         let identifier: String = attribute.path.get_ident().unwrap().to_string();
         let tokens: Vec<TokenTree> = attribute.tokens.into_iter().collect();
@@ -293,33 +443,36 @@ impl From<Attribute> for Property {
             thing => panic!("Expecting an argument group for argument {}, but found {:?}",
                             identifier, thing)
         };
-        Property::entity(identifier, arguments)
+        Configuration::from(arguments)
     }
 }
 
-fn evaluate_function(function: &ItemFn, module: &ModulePath, found_queries: &mut Vec<QueryFunction>) -> Result<()> {
-    println!("Analyzing function: {}", function.sig.ident.to_string());
-    // if function.tagged_as_djanco() {
-    let selected_attributes = function.get_djanco_attributes();
-    //println!("selected attributes: {:?}", selected_attributes);
-    for attribute in selected_attributes {
-        let property = Property::from(attribute);
-        println!("property: {:?}", property);
-
-        // FIXME
-
-        found_queries.push(QueryFunction {
-            function: function.sig.ident.to_string(),
-            module: module.clone()
-        });
+impl PartialEq for Configuration {
+    fn eq(&self, other: &Self) -> bool {
+        self.seed.eq(&other.seed)
+            && self.month.eq(&other.month)
+            && self.year.eq(&other.year)
+            && self.seed.eq(&other.seed)
+            && self.subsets.eq(&other.subsets)
     }
-    // }
+}
+
+fn evaluate_function(function: ItemFn, module: &ModulePath, found_queries: &mut Vec<QueryFunction>) -> Result<()> {
+    println!("Analyzing function: {}", function.sig.ident.to_string());
+    let query_configurations = function.get_djanco_attributes().into_iter()
+        .map(|attribute| {
+            Configuration::from(attribute)
+        })
+        .map(|configuration| {
+            QueryFunction::from(function.sig.ident.to_string(), module.clone(), configuration)
+        });
+    found_queries.extend(query_configurations);
     Ok(())
 }
 
 fn evaluate_item(item: &Item, module_path: &ModulePath, found_queries: &mut Vec<QueryFunction>) -> Result<()> {
     match item {
-        Item::Fn(function) => evaluate_function(&function, module_path, found_queries),
+        Item::Fn(function) => evaluate_function(function.clone(), module_path, found_queries),
         Item::Mod(module) => evaluate_module(&module, module_path, found_queries),
         //Item::ForeignMod(module) => {} // extern
         _ => Ok(()),
