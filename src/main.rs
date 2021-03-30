@@ -24,28 +24,6 @@ use proc_macro2::{TokenTree, TokenStream};
 use itertools::Itertools;
 use std::hash::{Hash, Hasher};
 
-// #[derive(Clap)]
-// #[clap(version = "1.0", author = "Konrad Siek <konrad.siek@gmail.com>")]
-// struct CommandLineOptions {
-//     // #[clap(short = 'o', long = "output-path", alias = "output-dir", parse(from_os_str))]
-//     // pub output_path: Option<PathBuf>,
-//     //
-//     // #[clap(name="FILE", parse(from_os_str))]
-//     // pub inputs: Vec<PathBuf>,
-//     //
-//     // #[clap(long = "as-json")]
-//     // pub json: bool,
-//     //
-//     // #[clap(long = "as-yaml")]
-//     // pub yaml: bool,
-//     //
-//     // #[clap(long = "as-sexpr", alias = "as-lisp")]
-//     // pub lisp: bool,
-//
-//     //#[structopt(short = "f", long = "force")]
-//     //pub force: bool,
-// }
-
 #[derive(Clone, Debug)]
 struct QueryFunction {
     module: ModulePath,
