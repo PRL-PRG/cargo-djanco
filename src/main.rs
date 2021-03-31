@@ -720,6 +720,6 @@ fn main() {
 
     println!("Execute runner using the following cargo command:");
     println!();
-    println!("    cargo --bin djanco --release -- --output-path PATH --dataset-path PATH");
+    println!("    cargo run --bin djanco --release -- --output-path PATH --dataset-path PATH");
     println!();
 }
