@@ -699,7 +699,8 @@ fn main() {
     let manifest = load_manifest("Cargo.toml")
         .expect("Manifest file not found at ./Cargo.toml");
     let crate_name = manifest.get_crate_name()
-            .expect("Could not find crate name in manifest");
+            .expect("Could not find crate name in manifest")
+            .replace("-", "_");
     let lib_path = PathBuf::from(manifest.get_lib_path()
         .expect("Error reading lib path from manifest")
         .unwrap_or("src/lib.rs".to_owned()));
