@@ -119,3 +119,5 @@ cargo --bin djanco --release -- \
     --repository REPOSITORY_URL
     --skip-results 
 ```
+
+Make sure the URL is SSH if you want to use SSH authentication :)
