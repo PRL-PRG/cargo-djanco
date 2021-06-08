@@ -426,16 +426,17 @@ impl From<Attribute> for Configuration {
         let identifier: String = attribute.path.get_ident().unwrap().to_string();
         let tokens: Vec<TokenTree> = attribute.tokens.into_token_stream().into_iter().collect();
 
-        if tokens.len() != 1 {
-            panic!("Attribute expected to have one argument group, but found {}", tokens.len());
+        if tokens.len() > 1 {
+            panic!("Attribute expected to have zero or one argument group, but found {}", tokens.len());
         }
-        let arguments: Vec<Property> = match tokens.into_iter().last().unwrap() {
-            TokenTree::Group(group) => {
+        let arguments: Vec<Property> = match tokens.into_iter().last() {
+            None => Vec::new(),
+            Some(TokenTree::Group(group)) => {
                 let tokens = group.stream();
                 tokens.into_properties()
             },
-            thing => panic!("Expecting an argument group for argument {}, but found {:?}",
-                            identifier, thing)
+            Some(thing) => panic!("Expecting an argument group for argument {}, but found {:?}",
+                                  identifier, thing)
         };
         Configuration::from(arguments)
     }
