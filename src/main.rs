@@ -598,7 +598,7 @@ impl Manifest for Value {
 const USES: [&'static str; 4] = ["djanco::*", "djanco::log::*", "djanco::utils::*", "clap::Clap"];
 
 const MAIN_HEADER: &'static str = r#"
-    let options = CommandLineOptions::parse();
+    let options = Configuration::parse();
     let log = Log::new(options.verbosity);
     let dataset = options.dataset_path_as_str();
     let cache = options.cache_path_as_str();
@@ -617,7 +617,7 @@ const MAIN_HEADER: &'static str = r#"
 
     macro_rules! prepare_database {
         ($savepoint:expr, $stores:expr) => {
-            Djanco::from_spec(dataset, cache, $savepoint, $stores, log.clone())
+            Djanco::from_config(&options, $savepoint, $stores, log.clone())
                 .expect("Error initializing Djanco!");
         }
     }
