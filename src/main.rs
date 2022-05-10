@@ -595,7 +595,7 @@ impl Manifest for Value {
     }
 }
 
-const USES: [&'static str; 4] = ["djanco::*", "djanco::log::*", "djanco::utils::*", "clap::Clap"];
+const USES: [&'static str; 4] = ["djanco::*", "djanco::log::*", "djanco::utils::*", "clap::Parser"];
 
 const MAIN_HEADER: &'static str = r#"
     let options = CommandLineOptions::parse();
