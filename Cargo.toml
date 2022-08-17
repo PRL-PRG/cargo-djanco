@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = "3.0.0-beta.2"
+clap = "3.1.17"
 syn = { version = "1.0.57", features = ["full", "extra-traits", "visit"] }
 anyhow = "1.0.37"
 toml = "0.5.8"
